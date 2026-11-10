@@ -14,6 +14,7 @@ import os
 import shlex
 import tempfile
 import uuid
+from urllib.parse import urlsplit
 from pathlib import Path, PurePosixPath
 from typing import override
 
@@ -48,6 +49,16 @@ def _resolve_dsh_connection(access) -> tuple[str, str]:
     Harbor 0.25's connection object may contain an inferred DeepSeek default;
     that inference must not override the explicit Qianfan route.
     """
+    proxy_url = os.environ.get("DSH_PROXY_URL", "")
+    proxy_token = os.environ.get("DSH_PROXY_TOKEN", "")
+    if proxy_url or proxy_token:
+        endpoint = urlsplit(proxy_url)
+        if (not proxy_token or endpoint.scheme not in {"http", "https"}
+                or not endpoint.hostname or endpoint.username or endpoint.password
+                or endpoint.query or endpoint.fragment or endpoint.path.rstrip("/") != "/v2"):
+            raise ValueError("DSH_PROXY_URL (/v2) and DSH_PROXY_TOKEN must both be configured")
+        # Proxy mode is fail-closed: never select the real provider key or URL.
+        return proxy_token, proxy_url.rstrip("/")
     access_api_key = getattr(access, "api_key", None)
     access_user_base_url = getattr(access, "user_supplied_base_url", None)
     access_base_url = getattr(access, "resolved_base_url", None) or access_user_base_url
@@ -108,6 +119,12 @@ class DshAgent(BaseInstalledAgent):
         # the whole budget on slow get-pip/apt fetches.
         await self.exec_as_root(
             environment,
+            # Offline images are prepared before evaluation; do not access
+            # package indexes inside the isolated task network.
+            "python3 -c \"from importlib.metadata import version; "
+            "assert version('deepseek-harness-sdk') == '0.1.0rc6'; "
+            "assert version('deepseek-harness-runtime-bin') == '0.1.0rc6'\""
+            if os.environ.get("DSH_OFFLINE_INSTALL") == "1" else (
             "set -e; "
             "python3 --version >/dev/null 2>&1 && "
             "python3 -m pip --version >/dev/null 2>&1 || "
@@ -125,7 +142,7 @@ class DshAgent(BaseInstalledAgent):
             "(timeout 90 apt-get update -qq && "
             "DEBIAN_FRONTEND=noninteractive timeout 300 apt-get install "
             "-y -qq --no-install-recommends "
-            "python3 python3-pip)",
+            "python3 python3-pip)"),
             timeout_sec=600,
         )
 
@@ -141,6 +158,9 @@ class DshAgent(BaseInstalledAgent):
                 f"chown -R {shlex.quote(str(environment.default_user))} "
                 f"{shlex.quote(str(_INSTALL_DIR))}",
             )
+
+        if os.environ.get("DSH_OFFLINE_INSTALL") == "1":
+            return
 
         # Prefer the PEP 668-aware install (Ubuntu 24.04+ / Debian 13);
         # --ignore-installed avoids pip failing on Debian system packages
@@ -185,6 +205,8 @@ class DshAgent(BaseInstalledAgent):
             "DSH_MODEL": model,
             "DSH_SESSION_ROOT": "/tmp/dsh-sessions",
             "DSH_MAX_TOKENS": os.environ.get("DSH_MAX_TOKENS", "49152"),
+            "DSH_MAX_STEPS": os.environ.get("DSH_MAX_STEPS", "500"),
+            "DSH_CONTEXT_WINDOW": os.environ.get("DSH_CONTEXT_WINDOW", "1000000"),
             "DSH_THINKING": os.environ.get("DSH_THINKING", "enabled"),
             "DSH_TEMPERATURE": os.environ.get("DSH_TEMPERATURE", "1.0"),
             "DSH_SYSTEM_PROMPT": os.environ.get(

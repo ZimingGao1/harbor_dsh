@@ -47,6 +47,17 @@ def main() -> int:
         max_tokens = 49152
 
     try:
+        max_steps = int(os.environ.get("DSH_MAX_STEPS", "500"))
+        context_window = int(os.environ.get("DSH_CONTEXT_WINDOW", "1000000"))
+        if not (1 <= max_steps <= 2**53 - 1 and 1 <= context_window <= 2**53 - 1):
+            raise ValueError
+    except ValueError:
+        return _finish(result_path, {
+            "ok": False,
+            "error": "DSH_MAX_STEPS and DSH_CONTEXT_WINDOW must be positive safe integers",
+        })
+
+    try:
         from deepseek_harness import DeepSeekHarness
     except ImportError as exc:
         return _finish(result_path, {"ok": False, "error": f"deepseek_harness import failed: {exc}"})
@@ -76,7 +87,18 @@ def main() -> int:
             "session_id": result.session_id,
             "finish_reason": result.finish_reason,
             "final_response": result.final_response,
+            "evaluation": {
+                "max_steps_per_turn": max_steps,
+                "context_window_metadata": context_window,
+                "max_output_tokens": max_tokens,
+                "top_p_supported": False,
+            },
         }
+        steps_started = sum(e.get("type") == "step/start" for e in result.events)
+        payload["steps_started"] = steps_started
+        payload["step_limit_reached"] = (
+            result.finish_reason == "blocked" and steps_started == max_steps
+        )
         if result.finish_reason == "error":
             payload["error_detail"] = _extract_error_detail(result)
     except Exception as exc:  # noqa: BLE001 - report any failure to Harbor

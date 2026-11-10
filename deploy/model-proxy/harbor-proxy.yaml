@@ -1,0 +1,56 @@
+# Single-trial overlay, Docker Compose >=2.24.4 (uses !override / !reset).
+# Prebuild the proxy and task images BEFORE enabling the isolated network.
+services:
+  main:
+    networks: !override
+      default:
+        ipv4_address: ${DSH_TASK_IP:-172.30.90.3}
+    network_mode: !reset null
+    pid: !reset null
+    ipc: private
+    privileged: false
+    cap_add: !reset []
+    cap_drop: !override [NET_ADMIN, NET_RAW, SYS_ADMIN, SYS_PTRACE, SYS_MODULE]
+    security_opt: !override [no-new-privileges:true]
+    # Docker still resolves service names, but cannot forward arbitrary DNS
+    # lookups to the host's/public DNS servers. Verify this on the target engine.
+    dns: !override [127.0.0.1]
+    depends_on:
+      dsh-model-proxy:
+        condition: service_healthy
+  dsh-model-proxy:
+    image: dsh-model-proxy:local
+    command: ["--key-file", "/run/secrets/qianfan_key", "--token-file", "/run/secrets/proxy_token",
+              "--max-requests", "1600", "--lifetime-seconds", "7200"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 256m
+    cpus: 1.0
+    networks:
+      default:
+        ipv4_address: ${DSH_PROXY_IP:-172.30.90.2}
+      model-egress: {}
+    secrets: [qianfan_key, proxy_token]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    # No published ports, Docker socket, host PID, host /proc or writable code.
+networks:
+  default:
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${DSH_TASK_SUBNET:-172.30.90.0/24}
+  model-egress:
+    internal: false
+secrets:
+  qianfan_key:
+    file: ${DSH_QIANFAN_KEY_FILE:?Set the host-only key file path}
+  proxy_token:
+    file: ${DSH_PROXY_TOKEN_FILE:?Set the host-only per-trial token file path}

@@ -23,6 +23,8 @@
     streamIdleTimeoutMs: 172800000
     models:
       - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4.1-flash-1017'
+        # Harness model metadata, NOT proof of the gateway's actual capacity.
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? '1000000')
 
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'

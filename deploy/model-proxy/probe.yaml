@@ -1,0 +1,7 @@
+# Offline isolation fixture; no SDK installation and no real API request.
+services:
+  main:
+    image: python:3.12.10-slim
+    command: ["sleep", "infinity"]
+    volumes:
+      - ${DSH_REPO_ROOT:?Set absolute repo root}/tools/check-task-isolation.py:/checks/check-task-isolation.py:ro

@@ -1,5 +1,12 @@
 # harbor-dsh-agent
 
+评测参数、500 步计数方式、`top_p` 未支持项及安全边界见
+[evaluation-parameters.md](docs/evaluation-parameters.md)。离线回归测试：
+`.venv/bin/python -m unittest discover -s tests -v`。
+
+可选的服务器侧受限代理会补充 `top_p=0.95`，并将真实 Key 保留在任务容器之外；
+实现、本地验证与 Linux 隔离验收步骤见 [model-proxy.md](docs/model-proxy.md)。
+
 Run **Terminal-Bench 2.1** (and any other Harbor task) with **DeepSeek Harness (dsh)** as the agent.
 
 This repository contains a Harbor *installed agent* that:
@@ -87,7 +94,8 @@ exactly what you want when max-effort reasoning hits the official time limit.
 - `tools/mock-llm.py` — DeepSeek-compatible mock API that captures the exact request
   structure (messages/tools/reasoning_effort/thinking/temperature) — point
   `DEEPSEEK_BASE_URL` at it. The official DSH SDK used here has no `top_p`
-  field, so `top_p=0.95` is not emitted or claimed to be verified.
+  field, so direct SDK requests omit it. The optional restricted proxy adds
+  `top_p=0.95`; its real-SDK-to-local-upstream path has been tested offline.
 - `tools/rebuild-trajectories.py` — rebuild `trajectory.json` for an existing job
   from its session JSONL (use after upgrading the token-metrics logic; backs up originals as `.bak`).
 - `scripts/collect-timeouts.sh` — collect agent-timeout trials (reward 0) into a retry
