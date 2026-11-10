@@ -19,10 +19,10 @@
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKeyEnv: DEEPSEEK_API_KEY
+    thinking: !!js process.env.DSH_THINKING ?? 'enabled'
     streamIdleTimeoutMs: 172800000
     models:
-      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
-        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4.1-flash-1017'
 
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'

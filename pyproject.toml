@@ -6,7 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "dsh-tb-agent"
 version = "0.1.0"
 description = "Harbor installed agent that runs DeepSeek Harness (dsh) on Terminal-Bench 2.1"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
+dependencies = [
+  "harbor==0.25.0",
+  "deepseek-harness-sdk==0.1.0rc6",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -15,4 +19,4 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-dsh_tb_agent = ["minimal.cordis.yml"]
+dsh_tb_agent = ["minimal.cordis.yml", "effort-plugin.mjs"]

@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import override
 
 from harbor.agents.installed.base import BaseInstalledAgent
-from harbor.agents.model_connection import ModelConnectionSpec
+from harbor.agents.agent_auth_resolution import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trajectories.agent import Agent as TrajAgent
@@ -38,6 +38,40 @@ _CORDIS_PATH = str(_INSTALL_DIR / "minimal.cordis.yml")
 _INSTRUCTION_PATH = str(_INSTALL_DIR / "instruction.txt")
 _RESULT_REMOTE_PATH = PurePosixPath("/logs/agent/dsh-result.json")
 _RESULT_LOCAL_NAME = "dsh-result.json"
+_DEFAULT_QIANFAN_BASE_URL = "https://qianfan.baidubce.com/v2"
+_DEFAULT_QIANFAN_MODEL = "deepseek-v4.1-flash-1017"
+
+
+def _resolve_dsh_connection(access) -> tuple[str, str]:
+    """Resolve the endpoint and key forwarded to the DSH child process.
+
+    Harbor 0.25's connection object may contain an inferred DeepSeek default;
+    that inference must not override the explicit Qianfan route.
+    """
+    access_api_key = getattr(access, "api_key", None)
+    access_user_base_url = getattr(access, "user_supplied_base_url", None)
+    access_base_url = getattr(access, "resolved_base_url", None) or access_user_base_url
+    qianfan_api_key = os.environ.get("QIANFAN_API_KEY", "")
+    qianfan_base_url = os.environ.get("QIANFAN_BASE_URL", "")
+    deepseek_base_url = os.environ.get("DEEPSEEK_BASE_URL", "")
+    if access_user_base_url:
+        # Explicit Harbor --base-url remains highest priority.
+        api_key = access_api_key or qianfan_api_key
+        base_url = access_user_base_url
+    elif bool(qianfan_api_key or qianfan_base_url) or not (
+        access_base_url or deepseek_base_url
+    ):
+        key_source = getattr(access, "api_key_source_name", None)
+        api_key = qianfan_api_key or (
+            access_api_key
+            if access_api_key and key_source != "DEEPSEEK_API_KEY"
+            else ""
+        )
+        base_url = qianfan_base_url or _DEFAULT_QIANFAN_BASE_URL
+    else:
+        api_key = access_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+        base_url = access_base_url or deepseek_base_url
+    return api_key, base_url
 
 
 class DshAgent(BaseInstalledAgent):
@@ -121,13 +155,13 @@ class DshAgent(BaseInstalledAgent):
             await self.exec_as_root(
                 environment,
                 "python3 -m pip install --break-system-packages --ignore-installed "
-                f"--quiet deepseek-harness-sdk{index_arg}",
+                f"--quiet deepseek-harness-sdk==0.1.0rc6{index_arg}",
                 timeout_sec=600,
             )
         except Exception:
             await self.exec_as_root(
                 environment,
-                f"python3 -m pip install --quiet deepseek-harness-sdk{index_arg}",
+                f"python3 -m pip install --quiet deepseek-harness-sdk==0.1.0rc6{index_arg}",
                 timeout_sec=600,
             )
 
@@ -137,7 +171,7 @@ class DshAgent(BaseInstalledAgent):
     ) -> None:
         model = (self.model_name or "").split("/", maxsplit=1)[-1]
         if not model:
-            model = os.environ.get("DSH_MODEL", "")
+            model = os.environ.get("DSH_MODEL", _DEFAULT_QIANFAN_MODEL)
         if not model:
             raise ValueError(
                 "Model name is required: pass -m <provider>/<model> or set DSH_MODEL"
@@ -151,25 +185,28 @@ class DshAgent(BaseInstalledAgent):
             "DSH_MODEL": model,
             "DSH_SESSION_ROOT": "/tmp/dsh-sessions",
             "DSH_MAX_TOKENS": os.environ.get("DSH_MAX_TOKENS", "49152"),
+            "DSH_THINKING": os.environ.get("DSH_THINKING", "enabled"),
+            "DSH_TEMPERATURE": os.environ.get("DSH_TEMPERATURE", "1.0"),
             "DSH_SYSTEM_PROMPT": os.environ.get(
                 "DSH_SYSTEM_PROMPT",
                 "You are a helpful software engineer assistant.",
             ),
         }
-        api_key = access.api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+        # Harbor 0.25 exposes ResolvedModelConnection.api_key plus
+        # resolved_base_url/user_supplied_base_url. It does not expose the
+        # older configured_base_url attribute. Qianfan variables select the
+        # Qianfan route; Harbor's inferred api.deepseek.com URL is ignored.
+        api_key, base_url = _resolve_dsh_connection(access)
         if api_key:
             env["DEEPSEEK_API_KEY"] = api_key
-        base_url = access.configured_base_url or os.environ.get(
-            "DEEPSEEK_BASE_URL", ""
-        )
         if base_url:
             env["DEEPSEEK_BASE_URL"] = base_url
         pip_index = os.environ.get("DSH_PIP_INDEX_URL", "")
         if pip_index:
             env["PIP_INDEX_URL"] = pip_index
-        effort = os.environ.get("DSH_REASONING_EFFORT", "")
-        if effort:
-            env["DSH_REASONING_EFFORT"] = effort
+        env["DSH_REASONING_EFFORT"] = os.environ.get(
+            "DSH_REASONING_EFFORT", "max"
+        )
 
         session_id = f"dsh-{uuid.uuid4().hex[:12]}"
 

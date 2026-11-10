@@ -12,8 +12,13 @@ export const name = 'dsh-reasoning-effort'
 export function apply(ctx) {
   ctx.on('agent/request', async (_payload, next) => {
     const effort = process.env.DSH_REASONING_EFFORT
-    if (!effort) return next()
     const resolved = await next()
-    return { ...resolved, reasoningEffort: effort }
+    return {
+      ...resolved,
+      ...(effort ? { reasoningEffort: effort } : {}),
+      ...(process.env.DSH_TEMPERATURE
+        ? { temperature: Number(process.env.DSH_TEMPERATURE) }
+        : {}),
+    }
   })
 }

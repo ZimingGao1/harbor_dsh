@@ -28,7 +28,8 @@ This repository contains a Harbor *installed agent* that:
 └────────────────────────────────────────────────────┘
 ```
 
-Why an *installed* agent? dsh needs Python ≥ 3.10 in the container; many official TB 2.1
+Why an *installed* agent? dsh needs Python ≥ 3.10 in the task container, while the
+Harbor control plane for this project uses Python ≥ 3.12; many official TB 2.1
 images are bare (no Python at all). The bootstrap chain handles every case:
 
 ```
@@ -59,10 +60,12 @@ the same `-a dsh_tb_agent:DshAgent` entry point.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | — | DeepSeek API key (required) |
-| `DEEPSEEK_BASE_URL` | provider default | API endpoint override (useful for testing/proxies) |
-| `DSH_MODEL` | `deepseek-v4-flash` | Model id (`-m` on the CLI overrides) |
-| `DSH_REASONING_EFFORT` | unset (adapter default `high`) | `off` \| `high` \| `max`, applied per request by `effort-plugin.mjs` |
+| `QIANFAN_API_KEY` | — | 千帆 API key; adapter forwards it to DSH as `DEEPSEEK_API_KEY` |
+| `QIANFAN_BASE_URL` | `https://qianfan.baidubce.com/v2` | 千帆 OpenAI-compatible API root |
+| `DSH_MODEL` | `deepseek-v4.1-flash-1017` | Model id (`-m` on the CLI overrides) |
+| `DSH_REASONING_EFFORT` | `max` | `off` \| `low` \| `high` \| `max`, applied by `effort-plugin.mjs` |
+| `DSH_THINKING` | `enabled` | Sent as `thinking: {"type": ...}` by the official DSH adapter |
+| `DSH_TEMPERATURE` | `1.0` | Sent as the official adapter's `temperature` field |
 | `DSH_MAX_TOKENS` | `49152` | Max output tokens per request |
 | `DSH_SYSTEM_PROMPT` | `You are a helpful software engineer assistant.` | The single system prompt (persona) |
 | `DSH_PIP_INDEX_URL` | official PyPI | pip mirror for in-container installs (e.g. TUNA) |
@@ -82,7 +85,9 @@ exactly what you want when max-effort reasoning hits the official time limit.
   per-task status, rewards, score ratio, ETA, per-task trajectory/log links.
   `JOB_OVERRIDE=jobs/<ts>` pins a specific job; `DSH_RUN_ROOT` / `DSH_TASKS_DIR` configure paths.
 - `tools/mock-llm.py` — DeepSeek-compatible mock API that captures the exact request
-  structure (messages/tools/reasoning_effort) — point `DEEPSEEK_BASE_URL` at it.
+  structure (messages/tools/reasoning_effort/thinking/temperature) — point
+  `DEEPSEEK_BASE_URL` at it. The official DSH SDK used here has no `top_p`
+  field, so `top_p=0.95` is not emitted or claimed to be verified.
 - `tools/rebuild-trajectories.py` — rebuild `trajectory.json` for an existing job
   from its session JSONL (use after upgrading the token-metrics logic; backs up originals as `.bak`).
 - `scripts/collect-timeouts.sh` — collect agent-timeout trials (reward 0) into a retry
@@ -98,8 +103,8 @@ exactly what you want when max-effort reasoning hits the official time limit.
 ## Requirements
 
 - Harbor `>= 0.21.0` (`pip install harbor`)
-- Python `>= 3.10` (adapter runs in the Harbor control plane)
-- A DeepSeek API key
+- Python `>= 3.12` (Harbor control plane)
+- A Qianfan API key
 - The TB 2.1 dataset (`harbor dataset download terminal-bench-2.1` or any task directory)
 
 ## License
